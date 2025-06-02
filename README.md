@@ -2,36 +2,44 @@
 
 A lightweight Java 17 SDK for integrating Ethio Telecom’s Telebirr H5 Web Payment into your Spring Boot or any Java application. Provides:
 
-- Configuration via a fluent `TelebirrProperties` builder  
-- Payment initiation (`/payment/v1/merchant/preOrder`) with RSA-encrypted payloads  
-- Asynchronous notification decryption and parsing  
-- Zero external HTTP dependencies (uses built-in `java.net.http.HttpClient`)
+* Configuration via a fluent `TelebirrConfig` builder
+* Payment initiation (`/payment/v1/merchant/preOrder`) with RSA-signed payloads
+* Asynchronous payment notification verification and parsing
+* Zero external HTTP dependencies (uses built-in `java.net.http.HttpClient`)
 
 ---
 
 ## Features
 
-- **Java 17+** codebase using modern language features (records, var, Text Blocks)  
-- **Immutable configuration** via a builder pattern  
-- **HTTP/2 support** and configurable timeouts  
-- **SHA-256** signing and **RSA/ECB/PKCS1Padding** encryption out-of-the-box  
-- **Easy Maven coordinates**: `io.github.alealem:telebirr:1.0.0`
+* **Java 17+** codebase using modern language features (`var`, Text Blocks)
+* **Immutable configuration** via a builder pattern
+* **HTTP/2 support** and configurable timeouts
+* **SHA-256 with RSA** signing out-of-the-box
+* **Easy Maven coordinates**:
+
+  ```xml
+  <dependency>
+    <groupId>io.github.alealem</groupId>
+    <artifactId>telebirr-sdk</artifactId>
+    <version>1.0.0</version>
+  </dependency>
+  ```
 
 ---
 
 ## Installation
 
-Add the dependency to your `pom.xml`:
+Add the dependency to your `pom.xml` (Maven Central or GitHub Packages):
 
 ```xml
 <dependency>
   <groupId>io.github.alealem</groupId>
-  <artifactId>telebirr</artifactId>
+  <artifactId>telebirr-sdk</artifactId>
   <version>1.0.0</version>
 </dependency>
 ```
 
-If you’re consuming from GitHub Packages, configure your `settings.xml`:
+To consume from GitHub Packages, add to your `settings.xml`:
 
 ```xml
 <server>
@@ -41,7 +49,7 @@ If you’re consuming from GitHub Packages, configure your `settings.xml`:
 </server>
 ```
 
-And in your `pom.xml`:
+And include this in your `pom.xml`:
 
 ```xml
 <repository>
@@ -57,57 +65,85 @@ And in your `pom.xml`:
 ### 1. Configure
 
 ```java
-TelebirrProperties props = TelebirrProperties.builder()
-  .baseUrl("https://196.188.120.3:38443/apiaccess/payment/gateway")
-  .appId("YOUR_APP_ID")
-  .appKey("YOUR_APP_KEY")
-  .shortCode("YOUR_SHORT_CODE")
-  .publicKey("BASE64_RSA_PUBLIC_KEY")
-  .notifyUrl("https://your-domain.com/telebirr/notify")
-  .returnUrl("https://your-domain.com/payment-result")
-  .receiveName("Your Company")
-  .timeout(Duration.ofMinutes(30))
+import io.github.alealem.telebirr.config.TelebirrConfig;
+import io.github.alealem.telebirr.TelebirrClient;
+
+TelebirrConfig config = new TelebirrConfig.Builder()
+  .setBaseUrl("https://developerportal.ethiotelebirr.et:38443/payment")
+  .setWebBaseUrl("https://developerportal.ethiotelebirr.et:38443/payment/web/paygate?")
+  .setFabricAppId("YOUR_FABRIC_APP_ID")
+  .setAppSecret("YOUR_APP_SECRET")
+  .setMerchantAppId("YOUR_MERCHANT_APPID")
+  .setMerchantCode("YOUR_MERCHANT_CODE")
+  .setNotifyUrl("https://your-domain.com/telebirr/notify")
+  .setPayeeIdentifierType("04")
+  .setPayeeType("5000")
+  .setRedirectUrl("https://your-domain.com/payment-result")
+  .setCallbackInfo("From web")
+  .setPrivateKeyPem("-----BEGIN PRIVATE KEY-----…")
+  .setPublicKeyPem("-----BEGIN PUBLIC KEY-----…")
   .build();
 
-TelebirrClient client = new TelebirrClient(props);
+TelebirrClient client = new TelebirrClient(config, /* insecure = */ true);
 ```
 
 ### 2. Initiate Payment
 
 ```java
-PaymentRequest req = new PaymentRequest(
-  "ORDER1234",                     // outTradeNo
-  "Book Purchase",                 // subject
-  "9.00"                           // totalAmount
-);
-PaymentResponse resp = client.createPayment(req);
-// Redirect user to Telebirr H5 page:
-String toPayUrl = resp.toPayUrl();
+import io.github.alealem.telebirr.model.PreOrderResponse;
+
+PreOrderResponse response = client.createOrder("Book Purchase", "9.00");
+String toPayUrl = client.buildWebPayUrl(response.getBizContent().getPrepayId());
+// Redirect user to: toPayUrl
 ```
 
-### 3. Handle Notifications
+### 3. Handle Payment Notifications
 
 ```java
-NotificationRequest notifReq = ...; // parse JSON body
-NotificationResponse notif = client.parseNotification(notifReq);
-// notif.outTradeNo(), notif.transactionNo(), etc.
+import io.github.alealem.telebirr.model.PaymentNotification;
+
+// Parse the HTTP request body into a PaymentNotification instance
+PaymentNotification notification = ...;
+boolean valid = client.verifyNotification(notification);
+if (valid && "Completed".equals(notification.getTradeStatus())) {
+  String merchOrderId = notification.getMerchOrderId();
+  String paymentOrderId = notification.getPaymentOrderId();
+  // Process successful payment...
+}
 ```
 
 ---
 
 ## Building & Publishing
 
-- **Build**: `mvn clean package`  
-- **Publish**: push a Git tag `vX.Y.Z`, GitHub Actions will deploy to Maven Central and GitHub Packages.
+* **Build**:
+
+  ```bash
+  mvn clean package
+  ```
+* **Publish**:
+
+  1. Tag a release (e.g. `git tag v1.0.0 && git push origin v1.0.0`).
+  2. GitHub Actions (or your CI) will deploy to Maven Central and GitHub Packages.
 
 ---
 
 ## Contributing
 
-1. Fork the repo: `github.com/alealem/telebirr`  
-2. Create a feature branch: `git checkout -b feature/foo`  
-3. Commit your changes and push  
+1. Fork the repository (`github.com/alealem/telebirr`)
+2. Create a feature branch:
+
+   ```bash
+   git checkout -b feature/foo
+   ```
+3. Commit your changes and push:
+
+   ```bash
+   git push origin feature/foo
+   ```
 4. Open a Pull Request
+
+Please follow the existing code style and include tests where appropriate.
 
 ---
 
